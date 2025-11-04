@@ -1,0 +1,13 @@
+{
+  "name": "mcdailyquests-io",
+  "version": "1.0.0",
+  "description": "Daily AI Minecraft Quests",
+  "main": "generate-quest.js",
+  "scripts": { "generate": "node generate-quest.js" },
+  "dependencies": {
+    "ai": "^3.3.14",
+    "@ai-sdk/groq": "^0.0.47",
+    "zod": "^3.23.8"
+  },
+  "engines": { "node": ">=18" }
+}
