@@ -1,0 +1,13 @@
+{
+  "date": "2025-11-09",
+  "title": "Bamboo Labyrinth Legacy",
+  "lore": "Bamboo jungles entwine ancient villager legacies. Weave through without tools to inherit the panda guardian's wisdom.",
+  "steps": [
+    "Punch through bamboo maze without axes (jump only).",
+    "Find central panda—feed bamboo; it drops totem map.",
+    "Dig at marked spot for hidden woodland mansion key."
+  ],
+  "reward": "Panda totem granting jump boost II.",
+  "biomeHint": "Bamboo Jungle",
+  "id": "20251109"
+}
