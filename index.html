@@ -10,8 +10,16 @@
     :root { --bg: #0a0a0a; --card: #1a1a1a; --accent: #4CAF50; --text: #fff; --gold: #FFEB3B; --badge: #FFD700; }
     * { margin:0; padding:0; box-sizing:border-box; }
     body { background: var(--bg); color: var(--text); font-family: 'Press Start 2P', cursive; text-align: center; padding: 20px; line-height: 1.6; image-rendering: pixelated; }
-    h1 { color: var(--gold); font-size: 1.8rem; margin: 20px 0; text-shadow: 2px 2px #000; }
-    .container { max-width: 900px; margin: 0 auto; }
+    h1 { color: var(--gold); font-size: 1.8rem; margin: 20px 0; text-shadow: 2px 2px #000; display: inline-block; }
+    .info-btn { 
+      position: absolute; top: 20px; right: 20px; 
+      background: #333; color: #fff; width: 36px; height: 36px; 
+      border-radius: 50%; font-size: 1.2rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    }
+    .info-btn:hover { background: #555; }
+    .container { max-width: 900px; margin: 0 auto; position: relative; }
     #quest, .archive { background: var(--card); padding: 20px; border-radius: 12px; margin: 15px 0; border: 2px solid #333; position: relative; }
     .badge { position: absolute; top: -10px; right: -10px; background: var(--badge); color: #000; padding: 5px 10px; border-radius: 50%; font-size: 1.2rem; font-weight: bold; box-shadow: 0 0 10px gold; animation: pulse 2s infinite; z-index: 10; }
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
@@ -32,12 +40,31 @@
     .log { background: #111; padding: 15px; border-radius: 8px; margin-top: 20px; font-size: 0.8rem; text-align: left; max-height: 200px; overflow-y: auto; }
     canvas { margin: 10px auto; display: block; }
     .empty { color: #888; font-size: 0.8rem; }
-    @media (max-width: 600px) { h1 { font-size: 1.4rem; } }
+
+    /* INFO MODAL */
+    .modal { 
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+      background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; padding: 20px;
+    }
+    .modal-content { 
+      background: #111; color: #fff; padding: 30px; border-radius: 16px; max-width: 600px; 
+      border: 2px solid #4CAF50; text-align: left; position: relative; font-size: 0.9rem;
+    }
+    .close-modal { position: absolute; top: 10px; right: 15px; font-size: 1.5rem; cursor: pointer; color: #aaa; }
+    .close-modal:hover { color: #fff; }
+    .modal h3 { color: var(--gold); margin: 15px 0 10px; font-size: 1.1rem; }
+    .modal ul { margin: 10px 0; padding-left: 20px; }
+    .modal li { margin: 8px 0; }
+    .modal a { color: #4CAF50; text-decoration: underline; }
+
+    @media (max-width: 600px) { h1 { font-size: 1.4rem; } .modal-content { padding: 20px; } }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>MC DAILY QUESTS</h1>
+    <div class="info-btn" onclick="openInfo()">i</div>
+
     <p>One <strong>vanilla</strong> quest per day. Vote subtly—1/day max!</p>
 
     <div id="quest">Loading epicness...</div>
@@ -58,10 +85,54 @@
     </p>
   </div>
 
+  <!-- INFO MODAL -->
+  <div id="infoModal" class="modal">
+    <div class="modal-content">
+      <span class="close-modal" onclick="closeInfo()">X</span>
+      <h2 style="text-align:center; color:#FFEB3B;">MC Daily Quests – How It Works</h2>
+      <p><strong>One epic vanilla Minecraft quest every day. No mods. Pure adventure.</strong></p>
+
+      <h3>What is this?</h3>
+      <ul>
+        <li>AI generates a <strong>new quest daily</strong> at midnight UTC</li>
+        <li>Works in <strong>any world seed</strong> (Java or Bedrock)</li>
+        <li>100% vanilla – no mods, no commands</li>
+        <li>Quests focus on <em>exploration, puzzles, light survival</em></li>
+      </ul>
+
+      <h3>How to Play (3 Steps)</h3>
+      <ol>
+        <li><strong>Read today’s quest</strong> (title, lore, steps)</li>
+        <li><strong>Enter your world seed</strong> → click “Attach & Share”</li>
+        <li><strong>Play in your world!</strong> Share progress with friends</li>
+      </ol>
+
+      <h3>Voting (1 per day)</h3>
+      <ul>
+        <li>Click the <span class="material-icons" style="font-size:1rem;vertical-align:middle;">thumb_up</span> under any quest</li>
+        <li>You get <strong>1 vote per day</strong> (resets at midnight)</li>
+        <li>Top-voted quest gets a <strong>gold star</strong> badge</li>
+        <li>Optional: Check “Quest Complete” to auto-vote</li>
+      </ul>
+
+      <h3>Pro Tips</h3>
+      <ul>
+        <li>Share your seed link: <code>nagoh.us/MCQUESTS/?seed=12345</code></li>
+        <li>Check past quests in the <strong>Archive</strong> (swipe left/right)</li>
+        <li>Quests auto-generate – just come back daily!</li>
+      </ul>
+
+      <p style="text-align:center; margin-top:20px;">
+        <a href="https://github.com/NAGOHUSA/MCQUESTS" target="_blank">View on GitHub</a> • 
+        <a href="https://buymeacoffee.com/nagoh" target="_blank">Fuel More Quests</a>
+      </p>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/qrcode.js@1.0.0/lib/qrcode.min.js"></script>
   <script>
-    const REPO = 'NAGOHUSA/MCQUESTS';  // UPDATED REPO
-    const BASE_PATH = '/MCQUESTS/';     // UPDATED SUBPATH
+    const REPO = 'NAGOHUSA/MCQUESTS';
+    const BASE_PATH = '/MCQUESTS/';
     const today = new Date().toISOString().split('T')[0];
     const VOTES_KEY = 'nagohQuestVotes';
     const LAST_VOTE_KEY = 'nagohLastVoteDate';
@@ -85,6 +156,11 @@
       localStorage.setItem(LAST_VOTE_KEY, new Date().toISOString());
       return true;
     }
+
+    // Info Modal
+    function openInfo() { document.getElementById('infoModal').style.display = 'flex'; }
+    function closeInfo() { document.getElementById('infoModal').style.display = 'none'; }
+    window.onclick = function(e) { if (e.target === document.getElementById('infoModal')) closeInfo(); }
 
     async function getAvailableQuestDates() {
       try {
