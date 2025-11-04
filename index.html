@@ -3,61 +3,250 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>MC Daily Quests – nagoh.us</title>
+  <title>Minecraft Daily Quests 1.0 – nagoh.us</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <style>
-    :root { --bg: #0a0a0a; --card: #1a1a1a; --accent: #4CAF50; --text: #fff; --gold: #FFEB3B; --badge: #FFD700; }
-    * { margin:0; padding:0; box-sizing:border-box; }
-    body { background: var(--bg); color: var(--text); font-family: 'Press Start 2P', cursive; text-align: center; padding: 20px; line-height: 1.6; image-rendering: pixelated; }
-    h1 { color: var(--gold); font-size: 1.8rem; margin: 20px 0; text-shadow: 2px 2px #000; display: inline-block; }
-    .info-btn { 
-      position: absolute; top: 20px; right: 20px; 
-      background: #333; color: #fff; width: 36px; height: 36px; 
-      border-radius: 50%; font-size: 1.2rem; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
+    :root {
+      --bg: #2e2e2e;
+      --grass: #3caa3c;
+      --dirt: #8b5a2b;
+      --stone: #444;
+      --accent: #38c172;
+      --text: #fefefe;
+      --gold: #FFD700;
+      --badge: #ffeb3b;
+      --hover: #61e861;
     }
-    .info-btn:hover { background: #555; }
-    .container { max-width: 900px; margin: 0 auto; position: relative; }
-    #quest, .archive { background: var(--card); padding: 20px; border-radius: 12px; margin: 15px 0; border: 2px solid #333; position: relative; }
-    .badge { position: absolute; top: -10px; right: -10px; background: var(--badge); color: #000; padding: 5px 10px; border-radius: 50%; font-size: 1.2rem; font-weight: bold; box-shadow: 0 0 10px gold; animation: pulse 2s infinite; z-index: 10; }
-    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
-    h2 { color: var(--gold); margin: 10px 0; font-size: 1.2rem; }
-    ol { text-align: left; margin: 15px 0; padding-left: 30px; }
-    .biome { color: var(--accent); font-weight: bold; }
-    .vote-btn { background: none; border: none; color: #FF9800; font-size: 1.5rem; cursor: pointer; margin: 5px; opacity: 0.7; transition: opacity 0.3s; }
-    .vote-btn:hover, .vote-btn.voted { opacity: 1; color: #FFD700; }
-    .votes { font-size: 0.7rem; color: #aaa; margin-top: 5px; }
-    .complete-check { margin: 10px; font-size: 0.8rem; }
-    .carousel { display: flex; overflow-x: auto; gap: 15px; padding: 10px; scrollbar-width: none; }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: url('https://www.transparenttextures.com/patterns/green-dust-and-scratches.png') repeat, var(--bg);
+      color: var(--text);
+      font-family: 'Press Start 2P', cursive;
+      text-align: center;
+      padding: 20px;
+      line-height: 1.6;
+      image-rendering: pixelated;
+      background-size: 128px;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+      position: relative;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 2rem;
+      color: var(--gold);
+      text-shadow: 3px 3px #000;
+      margin-bottom: 15px;
+    }
+
+    p, h2, h3 {
+      margin: 10px auto;
+      max-width: 90%;
+    }
+
+    .info-btn {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      background: var(--stone);
+      border: 3px solid var(--grass);
+      color: var(--gold);
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      font-size: 1.5rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: 0.3s;
+    }
+
+    .info-btn:hover { background: var(--grass); color: #000; }
+
+    #quest, .archive-card {
+      background: var(--stone);
+      border: 4px solid var(--grass);
+      border-radius: 12px;
+      padding: 20px;
+      margin: 15px 0;
+      box-shadow: 0 4px 10px #000;
+    }
+
+    .badge {
+      position: absolute;
+      top: -10px;
+      right: -10px;
+      background: var(--badge);
+      color: #000;
+      padding: 6px 12px;
+      border-radius: 50%;
+      font-size: 1.1rem;
+      font-weight: bold;
+      animation: pulse 2s infinite;
+      z-index: 10;
+      box-shadow: 0 0 10px gold;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.1); }
+    }
+
+    h2 {
+      color: var(--gold);
+      font-size: 1.2rem;
+      margin-bottom: 10px;
+    }
+
+    ol {
+      text-align: left;
+      margin: 10px 0;
+      padding-left: 30px;
+    }
+
+    .biome {
+      color: var(--accent);
+      font-weight: bold;
+    }
+
+    input, button {
+      font-family: inherit;
+      font-size: 0.9rem;
+      border-radius: 6px;
+      padding: 12px;
+      border: 3px solid var(--grass);
+      background: var(--dirt);
+      color: white;
+      margin: 8px;
+      box-shadow: inset 0 0 5px #000;
+    }
+
+    input::placeholder { color: #aaa; }
+
+    button {
+      background: var(--accent);
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--hover);
+      color: #000;
+    }
+
+    .vote-btn {
+      background: none;
+      border: none;
+      color: var(--gold);
+      font-size: 1.5rem;
+      cursor: pointer;
+      margin: 5px;
+    }
+
+    .vote-btn:hover, .vote-btn.voted {
+      color: #fff176;
+      text-shadow: 0 0 5px #fff;
+    }
+
+    .votes { font-size: 0.7rem; color: #aaa; }
+
+    .complete-check {
+      margin-top: 10px;
+      font-size: 0.8rem;
+    }
+
+    .carousel {
+      display: flex;
+      overflow-x: auto;
+      gap: 15px;
+      padding: 10px;
+      scrollbar-width: none;
+    }
+
     .carousel::-webkit-scrollbar { display: none; }
-    .archive-card { min-width: 280px; background: #222; padding: 15px; border-radius: 8px; font-size: 0.8rem; position: relative; }
-    input, button { padding: 12px; margin: 10px 5px; font-family: inherit; font-size: 1rem; border: 2px solid #444; border-radius: 6px; }
-    button { background: var(--accent); color: white; cursor: pointer; }
-    button:hover { background: #45a049; }
-    .share, .qr { background: #2196F3; color: white; padding: 10px; border-radius: 6px; margin: 10px 0; }
-    .log { background: #111; padding: 15px; border-radius: 8px; margin-top: 20px; font-size: 0.8rem; text-align: left; max-height: 200px; overflow-y: auto; }
-    canvas { margin: 10px auto; display: block; }
-    .empty { color: #888; font-size: 0.8rem; }
 
-    /* INFO MODAL */
-    .modal { 
-      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
-      background: rgba(0,0,0,0.9); z-index: 1000; justify-content: center; align-items: center; padding: 20px;
+    .archive-card {
+      min-width: 280px;
+      font-size: 0.8rem;
+      position: relative;
     }
-    .modal-content { 
-      background: #111; color: #fff; padding: 30px; border-radius: 16px; max-width: 600px; 
-      border: 2px solid #4CAF50; text-align: left; position: relative; font-size: 0.9rem;
-    }
-    .close-modal { position: absolute; top: 10px; right: 15px; font-size: 1.5rem; cursor: pointer; color: #aaa; }
-    .close-modal:hover { color: #fff; }
-    .modal h3 { color: var(--gold); margin: 15px 0 10px; font-size: 1.1rem; }
-    .modal ul { margin: 10px 0; padding-left: 20px; }
-    .modal li { margin: 8px 0; }
-    .modal a { color: #4CAF50; text-decoration: underline; }
 
-    @media (max-width: 600px) { h1 { font-size: 1.4rem; } .modal-content { padding: 20px; } }
+    .log {
+      background: #222;
+      border: 3px solid #555;
+      padding: 15px;
+      border-radius: 8px;
+      margin-top: 20px;
+      font-size: 0.8rem;
+      text-align: left;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .share, .qr {
+      background: #2196F3;
+      color: white;
+      padding: 10px;
+      border-radius: 6px;
+      margin: 10px 0;
+    }
+
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.9);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .modal-content {
+      background: var(--stone);
+      color: #fff;
+      padding: 30px;
+      border-radius: 16px;
+      max-width: 600px;
+      border: 3px solid var(--accent);
+      text-align: left;
+      font-size: 0.9rem;
+    }
+
+    .close-modal {
+      position: absolute;
+      top: 10px;
+      right: 15px;
+      font-size: 1.5rem;
+      cursor: pointer;
+      color: #aaa;
+    }
+
+    .close-modal:hover {
+      color: #fff;
+    }
+
+    .empty {
+      color: #aaa;
+      font-size: 0.8rem;
+      font-style: italic;
+    }
+
+    @media (max-width: 768px) {
+      h1 { font-size: 1.5rem; }
+      .modal-content { padding: 20px; }
+      input, button { width: 90%; }
+      .container { padding: 10px; }
+    }
   </style>
 </head>
 <body>
@@ -80,9 +269,7 @@
     <h3>My Adventure Log</h3>
     <div class="log" id="log">No quests attached yet.</div>
 
-    <p>
-      <a href="https://buymeacoffee.com/nagoh" target="_blank" style="color: #FF9800;">Fuel Quests</a>
-    </p>
+    <p><a href="https://buymeacoffee.com/nagoh" target="_blank" style="color: #FF9800;">Fuel Quests</a></p>
   </div>
 
   <!-- INFO MODAL -->
@@ -157,7 +344,6 @@
       return true;
     }
 
-    // Info Modal
     function openInfo() { document.getElementById('infoModal').style.display = 'flex'; }
     function closeInfo() { document.getElementById('infoModal').style.display = 'none'; }
     window.onclick = function(e) { if (e.target === document.getElementById('infoModal')) closeInfo(); }
@@ -238,7 +424,6 @@
       });
     }
 
-    // Init
     const params = new URLSearchParams(window.location.search);
     const date = params.get('date') || today;
     (async () => {
