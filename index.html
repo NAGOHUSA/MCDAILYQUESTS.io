@@ -33,6 +33,7 @@
     .vote { color: #FF9800; }
     .log { background: #111; padding: 15px; border-radius: 8px; margin-top: 20px; font-size: 0.8rem; text-align: left; max-height: 200px; overflow-y: auto; }
     canvas { margin: 10px auto; display: block; }
+    .empty { color: #888; font-size: 0.8rem; }
     @media (max-width: 600px) { h1 { font-size: 1.4rem; } }
   </style>
 </head>
@@ -48,8 +49,8 @@
     <div id="shareUrl" class="share" style="display:none;"></div>
     <div id="qrCode"></div>
 
-    <h3>Quest Archive (Swipe)</h3>
-    <div class="carousel" id="archive"></div>
+    <h3>Quest Archive (Available Only)</h3>
+    <div class="carousel" id="archive"><div class="empty">Loading real quests...</div></div>
 
     <h3>My Adventure Log</h3>
     <div class="log" id="log">No quests attached yet.</div>
@@ -63,12 +64,29 @@
   <script src="https://cdn.jsdelivr.net/npm/qrcode.js@1.0.0/lib/qrcode.min.js"></script>
   <script>
     const REPO = 'NAGOHUSA/MCDAILYQUESTS.io';
+    const BASE_PATH = '/';
     const today = new Date().toISOString().split('T')[0];
+
+    // Get all real quest dates from GitHub API
+    async function getAvailableQuestDates() {
+      try {
+        const res = await fetch(`https://api.github.com/repos/${REPO}/contents/quests`);
+        const files = await res.json();
+        return files
+          .filter(f => f.name.match(/^\d{4}-\d{2}-\d{2}\.json$/))
+          .map(f => f.name.replace('.json', ''))
+          .sort((a, b) => b.localeCompare(a)); // newest first
+      } catch (err) {
+        console.error('GitHub API failed:', err);
+        return [];
+      }
+    }
 
     async function loadQuest(date, container = 'quest') {
       const url = `https://raw.githubusercontent.com/${REPO}/main/quests/${date}.json`;
       try {
         const res = await fetch(url);
+        if (!res.ok) throw new Error('Not found');
         const q = await res.json();
         const html = `
           <h2>${q.title}</h2>
@@ -81,14 +99,14 @@
         document.getElementById(container).innerHTML = html;
         return q;
       } catch {
-        document.getElementById(container).innerHTML = `<p>Quest not found. <a href="?date=2025-11-04">Try Day 1</a></p>`;
+        document.getElementById(container).innerHTML = `<p class="empty">No quest for ${date} yet. Check back later!</p>`;
       }
     }
 
     function attachQuest() {
       const seed = document.getElementById('seed').value.trim();
       if (!seed) return alert('Enter a seed!');
-      const share = `${location.origin}?seed=${seed}&quest=${today}`;
+      const share = `${window.location.origin}${BASE_PATH}?seed=${seed}&quest=${today}`;
       const log = JSON.parse(localStorage.getItem('nagohQuests') || '[]');
       log.push({ seed, quest: today, date: new Date().toLocaleDateString() });
       localStorage.setItem('nagohQuests', JSON.stringify(log));
@@ -112,20 +130,26 @@
 
     async function loadArchive() {
       const archive = document.getElementById('archive');
-      for (let i = 1; i <= 7; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const date = d.toISOString().split('T')[0];
+      archive.innerHTML = `<div class="empty">Finding real quests...</div>`;
+      
+      const dates = await getAvailableQuestDates();
+      if (dates.length === 0) {
+        archive.innerHTML = `<div class="empty">No quests yet. First one drops soon!</div>`;
+        return;
+      }
+
+      archive.innerHTML = ''; // Clear loading
+      dates.slice(0, 7).forEach((date, i) => {
         const card = document.createElement('div');
         card.className = 'archive-card';
         card.innerHTML = `<small>${date}</small><div id="a${i}"><small>Loading...</small></div>`;
         archive.appendChild(card);
-        await loadQuest(date, `a${i}`);
-      }
+        loadQuest(date, `a${i}`);
+      });
     }
 
     // Init
-    const params = new URLSearchParams(location.search);
+    const params = new URLSearchParams(window.location.search);
     const date = params.get('date') || today;
     loadQuest(date);
     loadArchive();
