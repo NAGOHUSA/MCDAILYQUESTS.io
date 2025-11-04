@@ -1,31 +1,47 @@
 const fs = require('fs');
-const { HfInference } = require('@huggingface/inference');
-
-const hf = new HfInference('YOUR_HF_TOKEN'); // Free tier: 1k calls/month
+const path = require('path');
+const { groq } = require('@ai-sdk/groq');
+const { generateObject } = require('ai');
+const { z } = require('zod');
 
 async function generateQuest() {
-  const prompt = `
-  Generate ONE epic Minecraft vanilla quest for today. Include:
-  - Title (fun, mysterious)
-  - Objective (1-3 steps, no mods)
-  - Lore (2-3 sentences)
-  - Reward idea
-  - Biome hint
-  - Seed-compatible (works in any world)
-  Example: "The Whispering Acacia" → Find a lone acacia in savanna, dig under for buried map...
-  `;
+  const today = new Date().toISOString().split('T')[0];
+  const outputPath = path.join('quests', `${today}.json`);
 
-  const response = await hf.textGeneration({
-    model: 'meta-llama/Llama-3.2-3B-Instruct',
-    inputs: prompt,
-    parameters: { max_new_tokens: 150 }
+  if (!fs.existsSync('quests')) {
+    fs.mkdirSync('quests', { recursive: true });
+  }
+
+  const { object } = await generateObject({
+    model: groq('llama-3.1-8b-instant'),
+    schema: z.object({
+      title: z.string().describe('Fun, mysterious quest title (10-15 words max)'),
+      lore: z.string().max(200).describe('2-3 sentences immersive backstory'),
+      steps: z.array(z.string().max(150)).min(1).max(3).describe('1-3 clear, vanilla Minecraft steps (no mods)'),
+      reward: z.string().max(100).describe('Creative, craftable reward idea'),
+      biomeHint: z.string().max(50).describe('Suggested biome/dimension to start'),
+    }),
+    prompt: `Generate ONE epic vanilla Minecraft quest for ${today}. Fun, shareable, seed-compatible (any world). Exploration/puzzle focus. No mods, no complex redstone.
+
+Output ONLY the structured fields. Theme: Mysterious [random: artifact, echo, curse, forge, whisper]. 
+
+Example:
+Title: The Silent Spore
+Lore: Deep in mushroom fields...
+Steps: ["Step 1", "Step 2"]
+etc.
+
+Keep steps realistic for survival mode.`,
   });
 
   const quest = {
-    date: new Date().toISOString().split('T')[0],
-    title: extractTitle(response.generated_text),
-    ...parseQuest(response.generated_text)
+    date: today,
+    ...object,
+    id: today.replace(/-/g, ''),
   };
 
-  fs.writeFileSync(`quests/${quest.date}.json`, JSON.stringify(quest, null, 2));
+  fs.writeFileSync(outputPath, JSON.stringify(quest, null, 2));
+  console.log(`✅ Generated: ${quest.title} for ${today}`);
 }
+
+generateQuest().catch(console.error);
