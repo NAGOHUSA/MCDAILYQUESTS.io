@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>MC Daily Quests – nagoh.us</title>
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet"> <!-- For thumbs-up icon -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   <style>
     :root { --bg: #0a0a0a; --card: #1a1a1a; --accent: #4CAF50; --text: #fff; --gold: #FFEB3B; --badge: #FFD700; }
     * { margin:0; padding:0; box-sizing:border-box; }
@@ -18,10 +18,10 @@
     h2 { color: var(--gold); margin: 10px 0; font-size: 1.2rem; }
     ol { text-align: left; margin: 15px 0; padding-left: 30px; }
     .biome { color: var(--accent); font-weight: bold; }
-    .vote-btn { background: none; border: none; color: #FF9800; font-size: 1.5rem; cursor: pointer; margin: 5px; opacity: 0.7; transition: opacity 0.3s; } /* Hidden feel: No bg, subtle */
-    .vote-btn:hover, .vote-btn.voted { opacity: 1; color: #FFD700; } /* Glow on vote */
+    .vote-btn { background: none; border: none; color: #FF9800; font-size: 1.5rem; cursor: pointer; margin: 5px; opacity: 0.7; transition: opacity 0.3s; }
+    .vote-btn:hover, .vote-btn.voted { opacity: 1; color: #FFD700; }
     .votes { font-size: 0.7rem; color: #aaa; margin-top: 5px; }
-    .complete-check { margin: 10px; } /* Optional auto-vote trigger */
+    .complete-check { margin: 10px; font-size: 0.8rem; }
     .carousel { display: flex; overflow-x: auto; gap: 15px; padding: 10px; scrollbar-width: none; }
     .carousel::-webkit-scrollbar { display: none; }
     .archive-card { min-width: 280px; background: #222; padding: 15px; border-radius: 8px; font-size: 0.8rem; position: relative; }
@@ -60,30 +60,23 @@
 
   <script src="https://cdn.jsdelivr.net/npm/qrcode.js@1.0.0/lib/qrcode.min.js"></script>
   <script>
-    const REPO = 'NAGOHUSA/MCDAILYQUESTS.io';
-    const BASE_PATH = '/';
+    const REPO = 'NAGOHUSA/MCQUESTS';  // UPDATED REPO
+    const BASE_PATH = '/MCQUESTS/';     // UPDATED SUBPATH
     const today = new Date().toISOString().split('T')[0];
-    const VOTES_KEY = 'nagohQuestVotes'; // All votes in one object
-    const LAST_VOTE_KEY = 'nagohLastVoteDate'; // For daily limit
+    const VOTES_KEY = 'nagohQuestVotes';
+    const LAST_VOTE_KEY = 'nagohLastVoteDate';
 
-    // Load/Save votes to localStorage
-    function getVotes() {
-      return JSON.parse(localStorage.getItem(VOTES_KEY) || '{}');
-    }
-    function saveVotes(votes) {
-      localStorage.setItem(VOTES_KEY, JSON.stringify(votes));
-    }
+    function getVotes() { return JSON.parse(localStorage.getItem(VOTES_KEY) || '{}'); }
+    function saveVotes(votes) { localStorage.setItem(VOTES_KEY, JSON.stringify(votes)); }
     function canVoteToday() {
-      const lastVote = localStorage.getItem(LAST_VOTE_KEY);
-      if (!lastVote) return true;
-      const lastDate = new Date(lastVote).toDateString();
-      return new Date().toDateString() !== lastDate;
+      const last = localStorage.getItem(LAST_VOTE_KEY);
+      if (!last) return true;
+      return new Date().toDateString() !== new Date(last).toDateString();
     }
 
-    // Vote function: Automatic, hidden
     function voteForQuest(questId) {
       if (!canVoteToday()) {
-        alert('1 vote per day—check back tomorrow!'); // Or subtle toast
+        alert('1 vote per day—check back tomorrow!');
         return false;
       }
       const votes = getVotes();
@@ -91,13 +84,6 @@
       saveVotes(votes);
       localStorage.setItem(LAST_VOTE_KEY, new Date().toISOString());
       return true;
-    }
-
-    // Optional: Auto-vote on "complete"
-    function setupCompleteAutoVote(containerId, questId) {
-      const container = document.getElementById(containerId);
-      const checkHtml = '<label class="complete-check"><input type="checkbox" onchange="if(this.checked) voteForQuest(\'' + questId + '\');"> Quest Complete (Auto-Vote)</label>';
-      container.innerHTML += checkHtml;
     }
 
     async function getAvailableQuestDates() {
@@ -122,8 +108,9 @@
         const q = await res.json();
         const votes = getVotes();
         const voteCount = votes[questId] || 0;
-        const voteBtn = showVote ? `<button class="vote-btn" title="Vote (+1)" onclick="if(voteForQuest('${questId}')){this.classList.add('voted'); event.stopPropagation();}"><span class="material-icons">thumb_up</span> <span class="votes">(${voteCount})</span></button>` : '';
-        const badge = voteCount > (votes[Object.keys(votes).find(id => id !== questId)] || 0) ? '<div class="badge">⭐</div>' : ''; // Simple max check
+        const isTop = Object.entries(votes).every(([k, v]) => k === questId || v <= voteCount);
+        const voteBtn = showVote ? `<button class="vote-btn" onclick="if(voteForQuest('${questId}')) this.classList.add('voted');"><span class="material-icons">thumb_up</span> <span class="votes">(${voteCount})</span></button>` : '';
+        const badge = isTop && voteCount > 0 ? '<div class="badge">1st</div>' : '';
         const html = `
           ${badge}
           <h2>${q.title}</h2>
@@ -133,10 +120,9 @@
           <p class="biome">Start: ${q.biomeHint}</p>
           <small>Quest ${q.id}</small>
           ${voteBtn}
-          ${showVote ? setupCompleteAutoVote(container, questId) : ''} <!-- Hidden auto-option -->
+          ${showVote ? `<label class="complete-check"><input type="checkbox" onchange="if(this.checked) voteForQuest('${questId}');"> Quest Complete (Auto-Vote)</label>` : ''}
         `;
         document.getElementById(container).innerHTML = html;
-        return { date, votes: voteCount };
       } catch {
         document.getElementById(container).innerHTML = `<p class="empty">Quest ${date} not ready.</p>`;
       }
@@ -149,10 +135,8 @@
       const log = JSON.parse(localStorage.getItem('nagohQuests') || '[]');
       log.push({ seed, quest: today, date: new Date().toLocaleDateString() });
       localStorage.setItem('nagohQuests', JSON.stringify(log));
-
       document.getElementById('shareUrl').innerHTML = `Share: <a href="${share}" target="_blank">${share}</a>`;
       document.getElementById('shareUrl').style.display = 'block';
-
       new QRCode(document.getElementById("qrCode"), { text: share, width: 128, height: 128 });
       updateLog();
     }
@@ -160,42 +144,35 @@
     function updateLog() {
       const log = JSON.parse(localStorage.getItem('nagohQuests') || '[]');
       const div = document.getElementById('log');
-      if (log.length === 0) {
-        div.innerHTML = 'No quests attached yet.';
-        return;
-      }
-      div.innerHTML = log.map(l => `• ${l.date} – Seed <strong>${l.seed}</strong> – Quest ${l.quest}`).join('<br>');
+      div.innerHTML = log.length === 0 ? 'No quests attached yet.' : log.map(l => `• ${l.date} – Seed <strong>${l.seed}</strong> – Quest ${l.quest}`).join('<br>');
     }
 
     async function loadArchive() {
       const archive = document.getElementById('archive');
       archive.innerHTML = `<div class="empty">Loading quests...</div>`;
-
       const questFiles = await getAvailableQuestDates();
-      if (questFiles.length === 0) {
-        archive.innerHTML = `<div class="empty">No quests yet!</div>`;
-        return;
-      }
-
+      if (questFiles.length === 0) { archive.innerHTML = `<div class="empty">No quests yet!</div>`; return; }
       archive.innerHTML = '';
       questFiles.slice(0, 7).forEach((q, i) => {
         const card = document.createElement('div');
         card.className = 'archive-card';
         card.innerHTML = `<div id="a${i}"><small>Loading...</small></div>`;
         archive.appendChild(card);
-        loadQuest(q.date, `a${i}`, true, q.id); // Show vote in archive
+        loadQuest(q.date, `a${i}`, true, q.id);
       });
     }
 
     // Init
     const params = new URLSearchParams(window.location.search);
     const date = params.get('date') || today;
-    const questFiles = await getAvailableQuestDates(); // Wait for files
-    if (questFiles.some(q => q.date === date)) {
-      loadQuest(date, 'quest', true, questFiles.find(q => q.date === date).id);
-    }
-    loadArchive();
-    updateLog();
+    (async () => {
+      const questFiles = await getAvailableQuestDates();
+      if (questFiles.some(q => q.date === date)) {
+        loadQuest(date, 'quest', true, questFiles.find(q => q.date === date).id);
+      }
+      loadArchive();
+      updateLog();
+    })();
   </script>
 </body>
 </html>
