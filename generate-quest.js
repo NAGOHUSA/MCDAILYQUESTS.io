@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
  * Minecraft Daily Quest generator (Java & Bedrock, kid-friendly)
- * - Outputs quests/YYYY-MM-DD.json
- * - 1–3 steps, phrased as QUESTIONS
- * - 100% vanilla, seed-agnostic (no commands, no structures required)
- * - Easy tasks only; light weekday scaling
- * - Built-in validation + fallback redo if anything is off
+ * - Weekly theme, ramps Mon→Sun, resets each Monday
+ * - Holiday themes override regular themes by date window
+ * - 100% vanilla-safe (no structures, villagers, Nether, potions, commands)
+ * - Validator + auto-redo + hard fallback
+ * - Week-deterministic choices (ISO week seed)
  */
 
 const fs = require("fs");
@@ -15,188 +15,461 @@ const OUT_DIR = "quests";
 const DATE = process.env.DATE || new Date().toISOString().slice(0, 10);
 const OUT = process.env.OUT || path.join(OUT_DIR, `${DATE}.json`);
 
-/** -----------------------------------------------------------------------
- * SAFE, UNIVERSAL, KID-FRIENDLY BUILDING BLOCKS (Java + Bedrock parity)
- * Notes:
- *  - No Nether, no End, no villagers, no structures, no map/compass, no potions.
- *  - Everything is achievable on Day 1 anywhere (forests, plains, beaches, etc.).
- *  - When something needs fuel, allow any valid vanilla fuel.
- *  - Keep language clear and encouraging.
- * ----------------------------------------------------------------------*/
-
-/** Core questions (super safe, early-game). */
-const questionsCore = [
-  // Wood + tools + furnace/torches path
-  "Can you collect 20 logs of any wood and craft a crafting table and some sticks?",
-  "Can you mine 20 cobblestone and use it to craft a furnace and a stone pickaxe?",
-  "Can you make 16 torches using coal or charcoal and place them around a safe base area?",
-  "Can you smelt 8 sand into 8 glass using any fuel in your furnace?",
-  "Can you cook 5 pieces of any food (like raw meat, fish, or potatoes) using a furnace, smoker, or campfire?",
-
-  // Farming + sustainable food
-  "Can you plant at least 10 seeds (any kind) and water them nearby so they start growing?",
-  "Can you harvest 12 wheat (or mix of carrots/potatoes) and craft 4 bread if you have wheat?",
-  "Can you craft a composter and use it to turn extra plants into at least 1 bone meal?",
-
-  // Simple shelter & safety
-  "Can you build a small shelter (at least 5×5×3) with a door and a window made of glass?",
-  "Can you craft a bed of any color and sleep to set your spawn point?",
-  "Can you safely light up the area around your base with at least 20 torches to keep mobs away?",
-
-  // Friendly animal tasks (no rare items required)
-  "Can you feed and breed chickens using seeds to get at least 1 baby chick?",
-  "Can you gently gather 1 wool by shearing a sheep with shears you crafted from 2 iron (if you find iron)?",
-  "Can you lead an animal (like a cow, sheep, or chicken) into a tiny pen you build with fences?",
-
-  // Exploration that’s always possible (no structures required)
-  "Can you explore for a few minutes and bring back 10 different block types (like dirt, sand, gravel, logs, leaves, and stone)?",
-  "Can you collect 6 mushrooms total (red or brown) from caves or shady spots and store them safely?",
-  "Can you craft a boat and paddle across water for a short trip (about 300 blocks, just estimate)?",
-
-  // Campfire (unlocks safe cooking + smoke signal)
-  "Can you craft and place a campfire, then use it to cook at least 2 pieces of food?",
-];
-
-/** Extra questions (still safe; adds variety but stays easy). */
-const questionsExtra = [
-  "Can you craft a chest and organize today’s items so everything has a tidy spot?",
-  "Can you craft a set of stone tools (pickaxe, axe, shovel, sword, and hoe)?",
-  "Can you collect 16 coal (or make charcoal by smelting logs) so you never run out of torches?",
-  "Can you make a tiny garden with a water source block and plant 3 different crops if you have them?",
-  "Can you decorate your base with 4 different block types so it feels cozy?",
-];
-
-/** Biome “hints” are just flavor; none are required. */
-const biomeHints = [
-  "Any",
-  "Plains",
-  "Forest",
-  "Taiga",
-  "Birch Forest",
-  "Savanna",
-  "Beach",
-  "River",
-  "Hills",
-];
-
-/** Rewards are for fun—self-awarded brag tokens kids will enjoy. */
-const rewards = [
-  "A Proud Screenshot of Your Base",
-  "A Shiny Stone Tool Set You Crafted",
-  "A Cozy, Well-Lit Home Base",
-  "A Stack of Torches for Tomorrow",
-  "A Picnic of 5 Cooked Foods",
-];
-
-/** -----------------------------------------------------------------------
- * Utilities
- * ----------------------------------------------------------------------*/
-function pickN(arr, n) {
+/* ------------------------- ISO week & RNG utilities ------------------------ */
+function toUTCDate(d) {
+  const x = new Date(d + "T00:00:00Z");
+  return new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate()));
+}
+function getISOWeekInfo(isoDateStr) {
+  const d = toUTCDate(isoDateStr);
+  const target = new Date(d.valueOf());
+  const dayNum = (d.getUTCDay() + 6) % 7; // Mon=0..Sun=6
+  target.setUTCDate(target.getUTCDate() - dayNum + 3);
+  const isoYear = target.getUTCFullYear();
+  const firstThursday = new Date(Date.UTC(isoYear, 0, 4));
+  const diff = target - firstThursday;
+  const week = 1 + Math.round(diff / (7 * 24 * 3600 * 1000));
+  const dow = (d.getUTCDay() + 6) % 7;
+  return { isoYear, week, dow };
+}
+function mulberry32(seed) {
+  return function () {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function strHash(s) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+function pickN(rng, arr, n) {
   const copy = [...arr];
   const out = [];
   while (n-- > 0 && copy.length) {
-    const i = Math.floor(Math.random() * copy.length);
+    const i = Math.floor(rng() * copy.length);
     out.push(copy.splice(i, 1)[0]);
   }
   return out;
 }
 
-/** Steps count by weekday: Sun=1, Mon–Thu=2, Fri/Sat=3. */
-function stepsCountForDate(d) {
-  const dow = new Date(d).getUTCDay(); // 0 Sun … 6 Sat
-  if (dow === 0) return 1;       // Sun
-  if (dow === 5 || dow === 6) return 3; // Fri/Sat
-  return 2;                      // Mon–Thu
-}
+/* ------------------------- Safety filter (vanilla) ------------------------- */
+const BANNED = [
+  "nether","end","villager","wandering trader","structure","shipwreck","ruins",
+  "stronghold","fortress","bastion","potion","brew","enchant","elytra","ender",
+  "command","data pack","datapack","mod","plugin","cartography","monument",
+  "raid","trial","spire","sniffer","archeology","brush"
+];
+function isSafe(text){ return typeof text==="string" && !BANNED.some(k=>text.toLowerCase().includes(k)); }
 
-/** Ensure every step is a question and from the safe pools. */
-const BANNED_KEYWORDS = [
-  // anything that risks incompatibility or frustration
-  "nether", "end", "villager", "wandering trader", "structure",
-  "shipwreck", "ruins", "stronghold", "fortress", "bastion",
-  "potion", "brew", "enchant", "elytra", "ender",
-  "command", "data pack", "datapack", "mod", "plugin",
-  "map and compass", "cartography", "ocean monument",
+/* ------------------------------ Theme format ------------------------------ */
+/* Each theme defines warmups (Mon/Tue), core (Wed–Fri), stretch (Sat/Sun).   */
+
+const BASE_THEMES = [
+  {
+    key: "Farming Week",
+    color: "#6ab04c",
+    lore: "Nurture the land and stock your pantry.",
+    biomeHints: ["Any","Plains","Forest","River","Beach"],
+    warmups: [
+      "Collect 20 logs and craft a crafting table, a wooden hoe, and a chest.",
+      "Till soil near water and plant at least 10 seeds of any kind.",
+      "Craft a composter and make at least 1 bone meal.",
+      "Harvest 12 wheat or a mix of carrots/potatoes and store them in a chest.",
+      "Craft a bucket and water your field with a small trench or puddle."
+    ],
+    core: [
+      "Expand to 3 crop types (any you have) and replant what you harvest.",
+      "Breed any two animals (chickens with seeds; cows/sheep with wheat; pigs with carrots).",
+      "Place 12 torches around the farm to keep it safe at night.",
+      "Make 3 composters and feed extras until you get 3 bone meal.",
+      "Create a tiny greenhouse: walls of any block and at least 4 glass windows."
+    ],
+    stretch: [
+      "Plant 4 saplings (any mix) and fence the area.",
+      "Craft 4 bread and cook 4 other foods (any mix).",
+      "Hydrate all tilled soil and plant 20 crops.",
+      "Build a fenced pen and move two animals into it."
+    ],
+    rewards: [
+      "A neatly labeled pantry chest","A stack of seeds","A cozy torch-lit farm","A tidy orchard row"
+    ]
+  },
+  {
+    key: "Builder Week",
+    color: "#f0932b",
+    lore: "Shape the world with safe shelters and style.",
+    biomeHints: ["Any","Forest","Taiga","Hills","Birch Forest"],
+    warmups: [
+      "Gather 64 blocks of any building material (wood, stone, or mixed).",
+      "Smelt 8 sand into glass and set at least 2 windows in your base.",
+      "Place a door, pressure plate, and a few torches for a welcoming entrance.",
+      "Craft a set of stone tools and a spare furnace for your workshop.",
+      "Make a roof line with slabs or stairs along one side of your base."
+    ],
+    core: [
+      "Expand your home to at least 5×5×3 inside and light it to be mob-safe.",
+      "Add a crafting table, furnace, chest, bed, and one decorative block.",
+      "Lay a 10-block path from your door using any block type.",
+      "Build a porch or balcony with fences as railings.",
+      "Create a storage wall with 4 chests and labels."
+    ],
+    stretch: [
+      "Add a second room or loft with stairs or ladder.",
+      "Install 8 more glass blocks and a skylight.",
+      "Mix 3 block types on your facade for texture.",
+      "Light the perimeter with 20 torches (no dark spots)."
+    ],
+    rewards: [
+      "A proud screenshot of your build","A tidy workshop corner","A labeled storage wall","A sunny skylight"
+    ]
+  },
+  {
+    key: "Explorer Week",
+    color: "#22a6b3",
+    lore: "Venture safely, gather resources, and return with stories.",
+    biomeHints: ["Any","Plains","Forest","Beach","River","Hills"],
+    warmups: [
+      "Craft a boat and take a short paddle (about 300 blocks—estimate is fine).",
+      "Craft 16 torches and a spare stone pickaxe for your journey.",
+      "Collect 10 different block types and bring them back home.",
+      "Cook 5 foods (any mix) to pack as snacks.",
+      "Place a 6-block waypoint pillar with a torch on top near your base."
+    ],
+    core: [
+      "Gather 24 coal or make 16 charcoal for lighting.",
+      "Mine 32 cobblestone and 8 iron ore if you see any; smelt what you find.",
+      "Collect 6 mushrooms total (red/brown) from caves/shade.",
+      "Explore for a few minutes and safely return to base (no map needed).",
+      "Light a small cave entrance with 8 torches and gather common ores you see."
+    ],
+    stretch: [
+      "Create a safe outpost: a bed, chest, furnace, and torch ring at a new spot.",
+      "Bridge a small gap or river to make travel easier next time.",
+      "Build a 7-block watchtower with ladder access and a torch on top.",
+      "Return with a full stack of any useful block you found."
+    ],
+    rewards: [
+      "A scenic lookout tower","A stocked travel chest","A safe cave entryway","A trusty docked boat"
+    ]
+  },
+  {
+    key: "Cozy Base Week",
+    color: "#be2edd",
+    lore: "Comfort and order—make it feel like home.",
+    biomeHints: ["Any","Plains","Forest","Taiga","River"],
+    warmups: [
+      "Craft a bed of any color and set your spawn.",
+      "Place a campfire and cook at least 2 foods on it.",
+      "Label 3 chests with signs or item frames.",
+      "Place 12 torches in your rooms for cozy lighting.",
+      "Add a flower pot or a small plant corner."
+    ],
+    core: [
+      "Create a kitchen nook: furnace/smoker, crafting table, and a food chest.",
+      "Make a bedroom corner: bed, chest, and a window with glass.",
+      "Build a sitting area using stairs/slabs as chairs and a table.",
+      "Fence a small garden right outside your door.",
+      "Organize your items so every chest has a purpose."
+    ],
+    stretch: [
+      "Add a fireplace feature (campfire behind stairs/slabs).",
+      "Decorate walls with mixed blocks or frames.",
+      "Build a small basement or attic storage room.",
+      "Light your yard perimeter so nights feel safe."
+    ],
+    rewards: [
+      "A homey bedroom snapshot","A tidy kitchen corner","A charming front garden","An organized attic"
+    ]
+  },
+  {
+    key: "Survival Skills Week",
+    color: "#eb4d4b",
+    lore: "Stay safe, prepare smart, master day-one essentials.",
+    biomeHints: ["Any","Plains","Forest","Hills","Birch Forest"],
+    warmups: [
+      "Craft a shield if you have 1 iron; otherwise craft extra torches.",
+      "Make spare tools (stone pickaxe and axe).",
+      "Cook 5 foods (any) and keep them on your hotbar.",
+      "Collect 24 cobblestone and 16 logs for supplies.",
+      "Set your spawn and reinforce your door for night safety."
+    ],
+    core: [
+      "Light 20 torches around your base and paths.",
+      "Smelt 8 sand into glass to improve visibility and safety.",
+      "If you find iron, craft shears and gather 1 wool from a sheep.",
+      "Build a 5×5×3 safe room with a door and two windows.",
+      "Craft a water bucket and practice a gentle descent from a small height."
+    ],
+    stretch: [
+      "Dig an escape tunnel or a second exit from your base.",
+      "Place a torch way every ~8–10 blocks along a route.",
+      "Craft backup gear for future adventures.",
+      "Make a mob-safe mine entrance with a door and lights."
+    ],
+    rewards: [
+      "A fortress-cozy base","A well-lit neighborhood","A backup gear chest","A guarded mine entrance"
+    ]
+  }
 ];
 
-function isSafeQuestion(q) {
-  if (typeof q !== "string") return false;
-  if (!q.trim().endsWith("?")) return false;
-  const lower = q.toLowerCase();
-  return !BANNED_KEYWORDS.some(k => lower.includes(k));
-}
-
-function validateQuest(quest) {
-  if (!quest || !Array.isArray(quest.steps)) return false;
-  if (quest.steps.length < 1 || quest.steps.length > 3) return false;
-  return quest.steps.every(isSafeQuestion);
-}
-
-/** Build steps for a date, always questions, from safe pools only. */
-function stepsForDate(d) {
-  const needed = stepsCountForDate(d);
-  const base = pickN(questionsCore, Math.min(needed, 3));
-  // pad with extra if needed (still capped at 3)
-  if (base.length < needed) {
-    base.push(...pickN(questionsExtra, needed - base.length));
+/* ----------------------------- Holiday themes ----------------------------- */
+/* Date windows are inclusive (UTC). Update/extend anytime.                   */
+const HOLIDAY_THEMES = [
+  {
+    key: "Halloween Week",
+    color: "#ff7518",
+    from: { month: 10, day: 25 }, to: { month: 10, day: 31 },
+    lore: "Spooky coziness—safe lights, pumpkins, and night-ready bases.",
+    biomeHints: ["Any","Forest","Taiga","Hills"],
+    warmups: [
+      "Gather 16 pumpkins or carve 6 jack-o'-lanterns with torches.",
+      "Place 12 torches along a path to make a safe trick-or-treat route.",
+      "Craft a scarecrow vibe near crops with fences and a jack-o'-lantern.",
+      "Cook 5 foods and stock a 'treat chest' at your door.",
+      "Build a tiny spooky porch with fences and a lantern."
+    ],
+    core: [
+      "Light up your yard so no dark spots remain.",
+      "Decorate your base with orange/black accents using any blocks.",
+      "Create a 7-block lookout with a torch or lantern on top.",
+      "Fence a small safe area where friends can gather at night.",
+      "Make a cozy room with windows to watch the stars."
+    ],
+    stretch: [
+      "Build a mini haunted garden with mushrooms and path blocks.",
+      "Add hidden lighting (torches under leaves/slabs) for ambience.",
+      "Make a pumpkin patch with rows and a fence gate.",
+      "Set up a tiny 'costume rack' with armor stands if you have them."
+    ],
+    rewards: ["Spooky porch vibes","A glowing pumpkin patch","A lantern-lit yard","A star-watching nook"]
+  },
+  {
+    key: "Winter Lights Week",
+    color: "#74b9ff",
+    from: { month: 12, day: 20 }, to: { month: 12, day: 31 },
+    lore: "Warm lights in the cold—cozy builds and bright paths.",
+    biomeHints: ["Any","Taiga","Snowy Plains","Forest"],
+    warmups: [
+      "Place 20 torches along paths to create a bright walkway.",
+      "Smelt 12 sand into glass for big windows.",
+      "Craft a fireplace feature with a campfire behind stairs/slabs.",
+      "Cook 6 foods to share with friends.",
+      "Add a spruce-style decoration (logs, leaves, or fences)."
+    ],
+    core: [
+      "Build a lodge room with bed, chest, crafting table, and furnace.",
+      "Make a glass bay window or skylight to let light in.",
+      "Set up a decorated front area with leaves, fences, and lanterns/torches.",
+      "Create a sledding hill look: snow layers or stairs for fun.",
+      "Light the perimeter so no mobs can sneak close."
+    ],
+    stretch: [
+      "Add an outdoor light tree using fences and torches/lanterns.",
+      "Craft extra blankets (beds) for guests and place them.",
+      "Build a warm kitchen corner with a smoker if you have one.",
+      "Create a small frozen-pond scene with a bench (stairs) nearby."
+    ],
+    rewards: ["A bright winter path","A cozy lodge room","A bay-window view","A festive front yard"]
+  },
+  {
+    key: "New Year Kickoff",
+    color: "#fdcb6e",
+    from: { month: 1, day: 1 }, to: { month: 1, day: 7 },
+    lore: "Fresh starts—organize, label, and light the way forward.",
+    biomeHints: ["Any","Plains","Forest","Beach"],
+    warmups: [
+      "Label 4 chests and sort items neatly.",
+      "Craft spare stone tools and store backups.",
+      "Place 16 torches to make your area bright.",
+      "Smelt 8 sand into glass and add windows.",
+      "Cook 5 foods and fill a 'adventure box' chest."
+    ],
+    core: [
+      "Build a to-do board with signs and place it in your base.",
+      "Make a safe mine entrance with door and lights.",
+      "Create a small farm with water and fences.",
+      "Add a second room or corner dedicated to storage.",
+      "Lay a 12-block path connecting base to farm or mine."
+    ],
+    stretch: [
+      "Raise a 7-block watchtower with a torch beacon.",
+      "Fence your perimeter to guide future paths.",
+      "Craft extra gear sets for future adventures.",
+      "Landscape with 3 block types for a clean look."
+    ],
+    rewards: ["A labeled storage wall","A safe mine entry","A tidy farm corner","A bright base perimeter"]
+  },
+  {
+    key: "Spring Garden Week",
+    color: "#55efc4",
+    from: { month: 4, day: 10 }, to: { month: 4, day: 17 },
+    lore: "Fresh growth—beds, paths, and peaceful green spaces.",
+    biomeHints: ["Any","Plains","Forest","River"],
+    warmups: [
+      "Plant 12 seeds and water them nearby.",
+      "Craft a composter and create 2 bone meal.",
+      "Add a flower bed with fences and a gate.",
+      "Place 12 torches around garden paths.",
+      "Cook 5 foods for a garden picnic chest."
+    ],
+    core: [
+      "Build a glass-window garden shed: crafting table, chest, furnace.",
+      "Create a seating area with slabs/stairs and a table.",
+      "Mix 3 block types to decorate the garden edges.",
+      "Fence off a small pond with a bench (stairs).",
+      "Replant crops so the garden keeps producing."
+    ],
+    stretch: [
+      "Expand to 3 crop types and keep them hydrated.",
+      "Add a leaf archway or trellis (fences + leaves).",
+      "Create a compost corner with 3 composters.",
+      "Connect garden to base with a lit path."
+    ],
+    rewards: ["A peaceful pond bench","A tidy garden shed","A blooming flower bed","A glowing path home"]
+  },
+  {
+    key: "Summer Beach Week",
+    color: "#ffeaa7",
+    from: { month: 7, day: 1 }, to: { month: 7, day: 7 },
+    lore: "Sunny builds—piers, paths, and picnic spots.",
+    biomeHints: ["Any","Beach","River","Plains"],
+    warmups: [
+      "Craft a boat and take a relaxing paddle.",
+      "Build a small pier with slabs/fences.",
+      "Place 12 torches along the shoreline path.",
+      "Cook 5 foods for a beach picnic chest.",
+      "Add shade: a small canopy with slabs and fences."
+    ],
+    core: [
+      "Create a lifeguard-style perch (7-block tower with ladder).",
+      "Make a boardwalk path with wood blocks/slabs.",
+      "Build a changing-hut room with door, chest, and torch.",
+      "Add decorative details using signs and item frames.",
+      "Connect the beach to your base with a lit path."
+    ],
+    stretch: [
+      "Expand the pier and add lanterns or more torches.",
+      "Create a fishing corner with a bench (stairs).",
+      "Landscape with sand/gravel/wood patterning.",
+      "Add a glow-at-night shoreline (hidden lights)."
+    ],
+    rewards: ["A sunny pier view","A cozy boardwalk","A beach picnic chest","A glowing shoreline"]
   }
-  // ensure question marks
-  const qSteps = base.map(s => s.trim().endsWith("?") ? s.trim() : `${s.trim()}?`);
-  return qSteps.slice(0, 3);
+];
+
+/* ----------------------- Difficulty ramp & composition --------------------- */
+function planForDow(dow){
+  const count = [1,2,2,2,3,3,3][dow]; // Mon..Sun
+  const mix = [
+    ["warmup"],
+    ["warmup","core"],
+    ["core","core"],
+    ["core","core"],
+    ["core","core","stretch"],
+    ["warmup","core","stretch"],
+    ["core","stretch","stretch"],
+  ][dow];
+  return {count, mix};
 }
 
-/** Known good fallback (always valid) if generation somehow fails repeatedly. */
-const HARDCODED_FALLBACK = {
-  title: "Vanilla Daily Quest",
-  id: DATE,
-  date: DATE,
-  lore: "Simple, seed-agnostic challenges you can finish in survival (Java & Bedrock).",
-  biome_hint: "Any",
-  reward: "A Proud Screenshot of Your Base",
-  steps: [
-    "Can you collect 20 logs, craft a crafting table, some sticks, and a stone pickaxe?",
-    "Can you make 16 torches (coal or charcoal) and light up your base to keep mobs away?",
-  ],
-  rules: [
-    "Vanilla survival only. No commands, no mods, any seed.",
-    "All steps are optional—play safely and have fun.",
-    "You never need special structures or dimensions for these quests.",
-  ],
-  redo_hint:
-    "If something seems unclear, just rerun the generator or pick another simple goal you enjoy today!",
-};
+/* -------------------------- Theme choosing w/ holiday ---------------------- */
+function dateInWindow(d, win){
+  const dt = toUTCDate(d);
+  const y = dt.getUTCFullYear();
+  const start = new Date(Date.UTC(y, win.from.month-1, win.from.day));
+  const end   = new Date(Date.UTC(y, win.to.month-1, win.to.day, 23,59,59));
+  return dt >= start && dt <= end;
+}
+function rngForWeek(isoYear, week){ return mulberry32(strHash(`${isoYear}-${week}-MCQUESTS`)); }
+function chooseThemeForDate(date, rng){
+  const holiday = HOLIDAY_THEMES.find(win => dateInWindow(date, win));
+  if (holiday) return holiday;
+  const idx = Math.floor(rng() * BASE_THEMES.length);
+  return BASE_THEMES[idx];
+}
 
-/** Attempts generation with validation and auto-redo. */
-function buildQuestWithFallback(date, maxTries = 10) {
-  for (let attempt = 1; attempt <= maxTries; attempt++) {
+/* ------------------------------ Step selection ----------------------------- */
+function stepsForDay(theme, dow, rng){
+  const {count, mix} = planForDow(dow);
+  const warmups = theme.warmups||[];
+  const core    = theme.core||[];
+  const stretch = theme.stretch||[];
+  const picks = [];
+  for (const slot of mix.slice(0, count)) {
+    if (slot==="warmup") picks.push(...(warmups.length?pickN(rng,warmups,1):pickN(rng,core,1)));
+    if (slot==="core")   picks.push(...(core.length?pickN(rng,core,1):pickN(rng,warmups,1)));
+    if (slot==="stretch")picks.push(...(stretch.length?pickN(rng,stretch,1):pickN(rng,core,1)));
+  }
+  // pad & dedupe
+  while (picks.length < count) {
+    if (core.length) picks.push(...pickN(rng, core, 1));
+    else if (warmups.length) picks.push(...pickN(rng, warmups, 1));
+    else if (stretch.length) picks.push(...pickN(rng, stretch, 1));
+    else break;
+  }
+  const seen = new Set();
+  const dedup = picks.filter(s => !seen.has(s) && seen.add(s));
+  return dedup.slice(0, count).filter(isSafe);
+}
+
+/* ----------------------------- Validation & I/O ---------------------------- */
+function validateQuest(q){
+  return !!(q && Array.isArray(q.steps) && q.steps.length>=1 && q.steps.length<=3 && q.steps.every(isSafe));
+}
+function hardFallback(date){
+  return {
+    title: "Vanilla Daily Quest",
+    theme: "Cozy Base (Fallback)",
+    color: "#888888",
+    id: date, date,
+    lore: "Simple, seed-agnostic goals—no commands needed.",
+    biome_hint: "Any",
+    reward: "A cozy, well-lit home base",
+    steps: [
+      "Gather 64 blocks and add a small room to your base.",
+      "Place 12 torches inside and 8 outside to keep the area safe."
+    ],
+    rules: [
+      "Java & Bedrock supported. No commands, no mods, any seed.",
+      "All steps are optional—stay safe and have fun.",
+      "No special structures or dimensions are required."
+    ],
+    redo_hint: "If something feels off, pick a similar step or rerun the generator."
+  };
+}
+function buildQuestWithFallback(date, maxTries=10){
+  const { isoYear, week, dow } = getISOWeekInfo(date);
+  const rng = rngForWeek(isoYear, week);
+  const theme = chooseThemeForDate(date, rng);
+  for (let i=0;i<maxTries;i++){
+    const steps = stepsForDay(theme, dow, rng);
     const quest = {
       title: "Vanilla Daily Quest",
-      id: date,
-      date,
-      lore:
-        "Kid-friendly, seed-agnostic challenges you can finish in survival—no commands needed.",
-      biome_hint: biomeHints[Math.floor(Math.random() * biomeHints.length)],
-      reward: rewards[Math.floor(Math.random() * rewards.length)],
-      steps: stepsForDate(date),
+      theme: theme.key,
+      color: theme.color || "#5c7cfa",
+      id: date, date,
+      lore: theme.lore,
+      biome_hint: (theme.biomeHints||["Any"])[Math.floor(rng()* (theme.biomeHints||["Any"]).length)] || "Any",
+      reward: (theme.rewards||["Bragging Rights"])[Math.floor(rng()* (theme.rewards||["Bragging Rights"]).length)],
+      steps,
       rules: [
-        "Java and Bedrock both supported. No commands, no mods, any seed.",
-        "All steps are optional—stay safe, keep it fun.",
-        "Everything here avoids special structures and other dimensions.",
+        "Java & Bedrock supported. No commands, no mods, any seed.",
+        "All steps are optional—keep it fun and safe.",
+        "No special structures or other dimensions are required."
       ],
-      redo_hint:
-        "If a step feels unclear in your world, swap it with another question you like or rerun the generator.",
+      redo_hint: "Swap any step with another from the same theme or rerun the generator."
     };
-
     if (validateQuest(quest)) return quest;
   }
-  // If we somehow failed all attempts, return known-good fallback.
-  return HARDCODED_FALLBACK;
+  return hardFallback(date);
 }
-
-/** I/O */
-function ensureDir(p) {
-  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
-}
+function ensureDir(p){ if (!fs.existsSync(p)) fs.mkdirSync(p,{recursive:true}); }
 
 const quest = buildQuestWithFallback(DATE);
 ensureDir(OUT_DIR);
