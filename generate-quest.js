@@ -1,37 +1,63 @@
 #!/usr/bin/env node
 /**
  * Minecraft Daily Quest generator (Java & Bedrock, kid-friendly)
- * - Weekly theme, ramps Mon→Sun, resets each Monday
- * - Holiday themes override regular themes by date window
- * - 100% vanilla-safe (no structures, villagers, Nether, potions, commands)
- * - Validator + auto-redo + hard fallback
- * - Week-deterministic choices (ISO week seed)
+ * - Date-named files in /quests (America/New_York): quests/YYYY-MM-DD.json
+ * - Weekly theme seeded by ISO week; holiday windows override by date window
+ * - Vanilla-safe safety filter; validator; fallback
+ * - Maintains quests/index.json (newest-first)
+ *
+ * Usage:
+ *   node generate-quest.js
+ *   node generate-quest.js --date=2025-11-05
+ * Env:
+ *   DATE=2025-11-05 node generate-quest.js
  */
 
 const fs = require("fs");
 const path = require("path");
 
-const OUT_DIR = "quests";
-const DATE = process.env.DATE || new Date().toISOString().slice(0, 10);
-const OUT = process.env.OUT || path.join(OUT_DIR, `${DATE}.json`);
+/* ------------------------------- Date helpers ------------------------------ */
+function nyDateString(d = new Date()) {
+  // Format "YYYY-MM-DD" in America/New_York
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(d)
+    .reduce((acc, p) => ((acc[p.type] = p.value), acc), {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
 
-/* ------------------------- ISO week & RNG utilities ------------------------ */
-function toUTCDate(d) {
-  const x = new Date(d + "T00:00:00Z");
+function toUTCDate(isoDateStr) {
+  // Treat the provided date as a date-only (local-agnostic) in UTC
+  const x = new Date(isoDateStr + "T00:00:00Z");
   return new Date(Date.UTC(x.getUTCFullYear(), x.getUTCMonth(), x.getUTCDate()));
 }
+
+// ISO week calculation (Mon=0..Sun=6)
 function getISOWeekInfo(isoDateStr) {
   const d = toUTCDate(isoDateStr);
-  const target = new Date(d.valueOf());
-  const dayNum = (d.getUTCDay() + 6) % 7; // Mon=0..Sun=6
-  target.setUTCDate(target.getUTCDate() - dayNum + 3);
-  const isoYear = target.getUTCFullYear();
-  const firstThursday = new Date(Date.UTC(isoYear, 0, 4));
-  const diff = target - firstThursday;
-  const week = 1 + Math.round(diff / (7 * 24 * 3600 * 1000));
+  // get day of week with Monday=0
   const dow = (d.getUTCDay() + 6) % 7;
+
+  // Thursday trick to get ISO year/week
+  const thursday = new Date(d);
+  thursday.setUTCDate(d.getUTCDate() - dow + 3);
+
+  const isoYear = thursday.getUTCFullYear();
+  const firstThursday = new Date(Date.UTC(isoYear, 0, 4));
+  const week =
+    1 +
+    Math.round(
+      (thursday - firstThursday) / (7 * 24 * 60 * 60 * 1000)
+    );
+
   return { isoYear, week, dow };
 }
+
+/* --------------------------------- RNG ------------------------------------ */
 function mulberry32(seed) {
   return function () {
     let t = (seed += 0x6d2b79f5);
@@ -48,6 +74,9 @@ function strHash(s) {
   }
   return h >>> 0;
 }
+function rngForWeek(isoYear, week) {
+  return mulberry32(strHash(`${isoYear}-${week}-MCQUESTS`));
+}
 function pickN(rng, arr, n) {
   const copy = [...arr];
   const out = [];
@@ -58,24 +87,43 @@ function pickN(rng, arr, n) {
   return out;
 }
 
-/* ------------------------- Safety filter (vanilla) ------------------------- */
+/* --------------------------- Safety / validation --------------------------- */
 const BANNED = [
-  "nether","end","villager","wandering trader","structure","shipwreck","ruins",
-  "stronghold","fortress","bastion","potion","brew","enchant","elytra","ender",
-  "command","data pack","datapack","mod","plugin","cartography","monument",
-  "raid","trial","spire","sniffer","archeology","brush"
+  "nether", "the nether", "end", "the end",
+  "villager", "wandering trader",
+  "structure", "shipwreck", "ruins", "stronghold",
+  "fortress", "bastion", "monument", "trial", "spire",
+  "potion", "brew", "enchant", "elytra", "ender", "ender pearl",
+  "command", "data pack", "datapack", "mod", "plugin",
+  "cartography",
+  "archaeology", "archeology", "brush", "sniffer", "raid"
 ];
-function isSafe(text){ return typeof text==="string" && !BANNED.some(k=>text.toLowerCase().includes(k)); }
+function isSafe(text) {
+  return typeof text === "string" && !BANNED.some(k => text.toLowerCase().includes(k));
+}
+function validateQuest(q) {
+  return Boolean(
+    q &&
+      typeof q.id === "string" &&
+      q.id === q.date &&
+      isSafe(q.title) &&
+      isSafe(q.theme) &&
+      Array.isArray(q.steps) &&
+      q.steps.length >= 1 &&
+      q.steps.length <= 3 &&
+      q.steps.every(isSafe)
+  );
+}
 
-/* ------------------------------ Theme format ------------------------------ */
-/* Each theme defines warmups (Mon/Tue), core (Wed–Fri), stretch (Sat/Sun).   */
+/* --------------------------------- Themes --------------------------------- */
+// Each theme defines warmups (Mon/Tue), core (Wed–Fri), stretch (Sat/Sun).
 
 const BASE_THEMES = [
   {
     key: "Farming Week",
     color: "#6ab04c",
     lore: "Nurture the land and stock your pantry.",
-    biomeHints: ["Any","Plains","Forest","River","Beach"],
+    biomeHints: ["Any", "Plains", "Forest", "River", "Beach"],
     warmups: [
       "Collect 20 logs and craft a crafting table, a wooden hoe, and a chest.",
       "Till soil near water and plant at least 10 seeds of any kind.",
@@ -97,14 +145,14 @@ const BASE_THEMES = [
       "Build a fenced pen and move two animals into it."
     ],
     rewards: [
-      "A neatly labeled pantry chest","A stack of seeds","A cozy torch-lit farm","A tidy orchard row"
+      "A neatly labeled pantry chest", "A stack of seeds", "A cozy torch-lit farm", "A tidy orchard row"
     ]
   },
   {
     key: "Builder Week",
     color: "#f0932b",
     lore: "Shape the world with safe shelters and style.",
-    biomeHints: ["Any","Forest","Taiga","Hills","Birch Forest"],
+    biomeHints: ["Any", "Forest", "Taiga", "Hills", "Birch Forest"],
     warmups: [
       "Gather 64 blocks of any building material (wood, stone, or mixed).",
       "Smelt 8 sand into glass and set at least 2 windows in your base.",
@@ -126,14 +174,14 @@ const BASE_THEMES = [
       "Light the perimeter with 20 torches (no dark spots)."
     ],
     rewards: [
-      "A proud screenshot of your build","A tidy workshop corner","A labeled storage wall","A sunny skylight"
+      "A proud screenshot of your build", "A tidy workshop corner", "A labeled storage wall", "A sunny skylight"
     ]
   },
   {
     key: "Explorer Week",
     color: "#22a6b3",
     lore: "Venture safely, gather resources, and return with stories.",
-    biomeHints: ["Any","Plains","Forest","Beach","River","Hills"],
+    biomeHints: ["Any", "Plains", "Forest", "Beach", "River", "Hills"],
     warmups: [
       "Craft a boat and take a short paddle (about 300 blocks—estimate is fine).",
       "Craft 16 torches and a spare stone pickaxe for your journey.",
@@ -155,14 +203,14 @@ const BASE_THEMES = [
       "Return with a full stack of any useful block you found."
     ],
     rewards: [
-      "A scenic lookout tower","A stocked travel chest","A safe cave entryway","A trusty docked boat"
+      "A scenic lookout tower", "A stocked travel chest", "A safe cave entryway", "A trusty docked boat"
     ]
   },
   {
     key: "Cozy Base Week",
     color: "#be2edd",
     lore: "Comfort and order—make it feel like home.",
-    biomeHints: ["Any","Plains","Forest","Taiga","River"],
+    biomeHints: ["Any", "Plains", "Forest", "Taiga", "River"],
     warmups: [
       "Craft a bed of any color and set your spawn.",
       "Place a campfire and cook at least 2 foods on it.",
@@ -184,14 +232,14 @@ const BASE_THEMES = [
       "Light your yard perimeter so nights feel safe."
     ],
     rewards: [
-      "A homey bedroom snapshot","A tidy kitchen corner","A charming front garden","An organized attic"
+      "A homey bedroom snapshot", "A tidy kitchen corner", "A charming front garden", "An organized attic"
     ]
   },
   {
     key: "Survival Skills Week",
     color: "#eb4d4b",
     lore: "Stay safe, prepare smart, master day-one essentials.",
-    biomeHints: ["Any","Plains","Forest","Hills","Birch Forest"],
+    biomeHints: ["Any", "Plains", "Forest", "Hills", "Birch Forest"],
     warmups: [
       "Craft a shield if you have 1 iron; otherwise craft extra torches.",
       "Make spare tools (stone pickaxe and axe).",
@@ -213,13 +261,13 @@ const BASE_THEMES = [
       "Make a mob-safe mine entrance with a door and lights."
     ],
     rewards: [
-      "A fortress-cozy base","A well-lit neighborhood","A backup gear chest","A guarded mine entrance"
+      "A fortress-cozy base", "A well-lit neighborhood", "A backup gear chest", "A guarded mine entrance"
     ]
   }
 ];
 
 /* ----------------------------- Holiday themes ----------------------------- */
-/* Date windows are inclusive (UTC). Update/extend anytime.                   */
+// Windows inclusive; evaluated in UTC by date string (date-only).
 const HOLIDAY_THEMES = [
   {
     key: "Halloween Week",
@@ -288,7 +336,7 @@ const HOLIDAY_THEMES = [
       "Craft spare stone tools and store backups.",
       "Place 16 torches to make your area bright.",
       "Smelt 8 sand into glass and add windows.",
-      "Cook 5 foods and fill a 'adventure box' chest."
+      "Cook 5 foods and fill an 'adventure box' chest."
     ],
     core: [
       "Build a to-do board with signs and place it in your base.",
@@ -364,49 +412,51 @@ const HOLIDAY_THEMES = [
 ];
 
 /* ----------------------- Difficulty ramp & composition --------------------- */
-function planForDow(dow){
-  const count = [1,2,2,2,3,3,3][dow]; // Mon..Sun
+// Mon..Sun steps: 1,2,2,2,3,3,3 with a warmup/core/stretch mix
+function planForDow(dow) {
+  const count = [1, 2, 2, 2, 3, 3, 3][dow];
   const mix = [
     ["warmup"],
-    ["warmup","core"],
-    ["core","core"],
-    ["core","core"],
-    ["core","core","stretch"],
-    ["warmup","core","stretch"],
-    ["core","stretch","stretch"],
+    ["warmup", "core"],
+    ["core", "core"],
+    ["core", "core"],
+    ["core", "core", "stretch"],
+    ["warmup", "core", "stretch"],
+    ["core", "stretch", "stretch"],
   ][dow];
-  return {count, mix};
+  return { count, mix };
 }
 
-/* -------------------------- Theme choosing w/ holiday ---------------------- */
-function dateInWindow(d, win){
-  const dt = toUTCDate(d);
+/* ------------------------- Theme choosing (holiday) ------------------------ */
+function dateInWindow(dateStr, win) {
+  const dt = toUTCDate(dateStr);
   const y = dt.getUTCFullYear();
-  const start = new Date(Date.UTC(y, win.from.month-1, win.from.day));
-  const end   = new Date(Date.UTC(y, win.to.month-1, win.to.day, 23,59,59));
+  const start = new Date(Date.UTC(y, win.from.month - 1, win.from.day, 0, 0, 0));
+  const end = new Date(Date.UTC(y, win.to.month - 1, win.to.day, 23, 59, 59));
   return dt >= start && dt <= end;
 }
-function rngForWeek(isoYear, week){ return mulberry32(strHash(`${isoYear}-${week}-MCQUESTS`)); }
-function chooseThemeForDate(date, rng){
-  const holiday = HOLIDAY_THEMES.find(win => dateInWindow(date, win));
+function chooseThemeForDate(dateStr, rng) {
+  const holiday = HOLIDAY_THEMES.find(win => dateInWindow(dateStr, win));
   if (holiday) return holiday;
   const idx = Math.floor(rng() * BASE_THEMES.length);
   return BASE_THEMES[idx];
 }
 
 /* ------------------------------ Step selection ----------------------------- */
-function stepsForDay(theme, dow, rng){
-  const {count, mix} = planForDow(dow);
-  const warmups = theme.warmups||[];
-  const core    = theme.core||[];
-  const stretch = theme.stretch||[];
+function stepsForDay(theme, dow, rng) {
+  const { count, mix } = planForDow(dow);
+  const warmups = theme.warmups || [];
+  const core = theme.core || [];
+  const stretch = theme.stretch || [];
+
   const picks = [];
   for (const slot of mix.slice(0, count)) {
-    if (slot==="warmup") picks.push(...(warmups.length?pickN(rng,warmups,1):pickN(rng,core,1)));
-    if (slot==="core")   picks.push(...(core.length?pickN(rng,core,1):pickN(rng,warmups,1)));
-    if (slot==="stretch")picks.push(...(stretch.length?pickN(rng,stretch,1):pickN(rng,core,1)));
+    if (slot === "warmup") picks.push(...(warmups.length ? pickN(rng, warmups, 1) : pickN(rng, core, 1)));
+    if (slot === "core") picks.push(...(core.length ? pickN(rng, core, 1) : pickN(rng, warmups, 1)));
+    if (slot === "stretch") picks.push(...(stretch.length ? pickN(rng, stretch, 1) : pickN(rng, core, 1)));
   }
-  // pad & dedupe
+
+  // Pad if needed, then dedupe
   while (picks.length < count) {
     if (core.length) picks.push(...pickN(rng, core, 1));
     else if (warmups.length) picks.push(...pickN(rng, warmups, 1));
@@ -415,19 +465,19 @@ function stepsForDay(theme, dow, rng){
   }
   const seen = new Set();
   const dedup = picks.filter(s => !seen.has(s) && seen.add(s));
-  return dedup.slice(0, count).filter(isSafe);
+
+  // Safety filter and limit to requested count
+  return dedup.filter(isSafe).slice(0, count);
 }
 
-/* ----------------------------- Validation & I/O ---------------------------- */
-function validateQuest(q){
-  return !!(q && Array.isArray(q.steps) && q.steps.length>=1 && q.steps.length<=3 && q.steps.every(isSafe));
-}
-function hardFallback(date){
+/* ----------------------------- Build & fallback ---------------------------- */
+function hardFallback(date) {
   return {
     title: "Vanilla Daily Quest",
     theme: "Cozy Base (Fallback)",
     color: "#888888",
-    id: date, date,
+    id: date,
+    date,
     lore: "Simple, seed-agnostic goals—no commands needed.",
     biome_hint: "Any",
     reward: "A cozy, well-lit home base",
@@ -443,35 +493,70 @@ function hardFallback(date){
     redo_hint: "If something feels off, pick a similar step or rerun the generator."
   };
 }
-function buildQuestWithFallback(date, maxTries=10){
+
+function buildQuest(date) {
   const { isoYear, week, dow } = getISOWeekInfo(date);
   const rng = rngForWeek(isoYear, week);
   const theme = chooseThemeForDate(date, rng);
-  for (let i=0;i<maxTries;i++){
-    const steps = stepsForDay(theme, dow, rng);
-    const quest = {
-      title: "Vanilla Daily Quest",
-      theme: theme.key,
-      color: theme.color || "#5c7cfa",
-      id: date, date,
-      lore: theme.lore,
-      biome_hint: (theme.biomeHints||["Any"])[Math.floor(rng()* (theme.biomeHints||["Any"]).length)] || "Any",
-      reward: (theme.rewards||["Bragging Rights"])[Math.floor(rng()* (theme.rewards||["Bragging Rights"]).length)],
-      steps,
-      rules: [
-        "Java & Bedrock supported. No commands, no mods, any seed.",
-        "All steps are optional—keep it fun and safe.",
-        "No special structures or other dimensions are required."
-      ],
-      redo_hint: "Swap any step with another from the same theme or rerun the generator."
-    };
-    if (validateQuest(quest)) return quest;
-  }
-  return hardFallback(date);
-}
-function ensureDir(p){ if (!fs.existsSync(p)) fs.mkdirSync(p,{recursive:true}); }
+  const steps = stepsForDay(theme, dow, rng);
 
-const quest = buildQuestWithFallback(DATE);
-ensureDir(OUT_DIR);
-fs.writeFileSync(OUT, JSON.stringify(quest, null, 2));
-console.log(`Wrote ${OUT}`);
+  const quest = {
+    title: "Vanilla Daily Quest",
+    theme: theme.key,
+    color: theme.color || "#5c7cfa",
+    id: date,
+    date,
+    lore: theme.lore,
+    biome_hint: (theme.biomeHints || ["Any"])[Math.floor(rng() * (theme.biomeHints || ["Any"]).length)] || "Any",
+    reward:
+      (theme.rewards || ["Bragging Rights"])[
+        Math.floor(rng() * (theme.rewards || ["Bragging Rights"]).length)
+      ],
+    steps,
+    rules: [
+      "Java & Bedrock supported. No commands, no mods, any seed.",
+      "All steps are optional—keep it fun and safe.",
+      "No special structures or other dimensions are required."
+    ],
+    redo_hint: "Swap any step with another from the same theme or rerun the generator."
+  };
+
+  return validateQuest(quest) ? quest : hardFallback(date);
+}
+
+/* --------------------------------- I/O ------------------------------------ */
+function ensureDir(p) {
+  if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
+}
+
+function readJSON(p, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+/* --------------------------------- Main ----------------------------------- */
+(function main() {
+  // Allow CLI flag --date=YYYY-MM-DD or DATE env; default to NY date today
+  const cliDate = process.argv.find(a => a.startsWith("--date="))?.split("=")[1];
+  const DATE = cliDate || process.env.DATE || nyDateString();
+
+  const OUT_DIR = path.join(process.cwd(), "quests");
+  const OUT_PATH = path.join(OUT_DIR, `${DATE}.json`);
+  const INDEX_PATH = path.join(OUT_DIR, "index.json");
+
+  ensureDir(OUT_DIR);
+
+  const quest = buildQuest(DATE);
+  fs.writeFileSync(OUT_PATH, JSON.stringify(quest, null, 2));
+
+  // Maintain index.json (newest-first, unique)
+  const index = readJSON(INDEX_PATH, []);
+  const set = new Set([DATE, ...index]);
+  const updated = Array.from(set).sort().reverse();
+  fs.writeFileSync(INDEX_PATH, JSON.stringify(updated, null, 2));
+
+  console.log(`Wrote quests/${DATE}.json and updated quests/index.json`);
+})();
