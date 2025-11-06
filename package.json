@@ -1,18 +1,13 @@
 {
   "name": "mcquests",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
-    "start": "node index.js",
-    "dev": "node index.js",
-    "generate": "node generate-quest.js"
+    "generate": "node generate-quest.js",
+    "validate": "node validate-quest.js"
   },
   "dependencies": {
-    "ai": "^3.1.20",
-    "@ai-sdk/groq": "^2.0.0",
-    "groq-sdk": "^0.6.0",
-    "openai": "^4.56.0",
-    "deepseek-sdk": "^1.0.2",
-    "node-fetch": "^3.3.2"
+    "groq-sdk": "^0.34.0"
   }
 }
