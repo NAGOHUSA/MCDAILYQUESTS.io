@@ -1,75 +1,69 @@
-# .github/workflows/build.yml
-name: Build MC Daily Quests
+name: Generate Daily Quest
 
 on:
+  schedule:
+    # Runs daily at ~05:05 America/New_York during Standard Time (06:05 during DST)
+    - cron: "5 10 * * *"
   workflow_dispatch:
-  push:
-    branches: [ main ]
+    inputs:
+      date:
+        description: "Optional override (YYYY-MM-DD in America/New_York). Leave blank for today."
+        required: false
+        type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: generate-daily-quest
+  cancel-in-progress: false
+
 jobs:
-  build:
+  generate:
     runs-on: ubuntu-latest
     env:
       TZ: America/New_York
-      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      GROQ_MCDAILYQUESTS: ${{ secrets.GROQ_MCDAILYQUESTS }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # If a lockfile exists, set up Node with npm caching
-      - name: Setup Node (with npm cache)
-        if: ${{ hashFiles('package-lock.json', 'npm-shrinkwrap.json') != '' }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            npm-shrinkwrap.json
-
-      # If no lockfile exists, set up Node without caching
-      - name: Setup Node (no cache)
-        if: ${{ hashFiles('package-lock.json', 'npm-shrinkwrap.json') == '' }}
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Print environment details
-        run: |
-          node -v
-          npm -v
-          echo "Lockfile present? $([[ -f package-lock.json || -f npm-shrinkwrap.json ]] && echo yes || echo no)"
+      - name: Show Node version
+        run: node -v
 
-      - name: Install dependencies
+      - name: Generate quest (date override supported)
         run: |
-          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-            npm ci
+          DATE_INPUT="${{ github.event.inputs.date }}"
+          if [ -n "$DATE_INPUT" ]; then
+            echo "Generating quest for $DATE_INPUT"
+            node generate-quest.js --date="$DATE_INPUT"
           else
-            npm install --no-audit --no-fund
+            echo "Generating quest for today (America/New_York)"
+            node generate-quest.js
           fi
 
-      - name: Build (if script exists)
+      - name: Commit quest files
         run: |
-          if npm run | grep -qE 'build'; then
-            npm run build
-          else
-            echo "No build script defined; skipping."
-          fi
-
-      - name: Commit build artifacts (optional)
-        if: ${{ success() && (github.event_name == 'workflow_dispatch') }}
-        run: |
-          if [ -n "$(git status --porcelain)" ]; then
+          if [ -n "$(git status --porcelain quests/)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add -A
-            git commit -m "chore(ci): update build artifacts [skip ci]"
+            git add quests/
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+              # Manual runs: message shows overridden date or 'today'
+              if [ -n "${{ github.event.inputs.date }}" ]; then
+                git commit -m "feat(quests): overwrite/add quest for ${{ github.event.inputs.date }} [skip ci]"
+              else
+                git commit -m "feat(quests): overwrite/add quest for today [skip ci]"
+              fi
+            else
+              git commit -m "feat(quests): add daily quest [skip ci]"
+            fi
             git push
           else
-            echo "No changes to commit."
+            echo "No changes under quests/; nothing to commit."
           fi
